@@ -7,6 +7,7 @@ import {
 
 import { createMiddleware } from '@tanstack/react-start'
 import { getRequestHeaders } from '@tanstack/react-start/server'
+import { redirect } from '@tanstack/react-router'
 
 // Kept here so it’s obvious what we consider public.
 // `isPublicPath` is the actual check used below.
