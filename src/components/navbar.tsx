@@ -58,7 +58,7 @@ export default function Navbar() {
               <Presentation className="size-5 text-primary-foreground" />
             </div>
             <span className="font-semibold text-lg text-foreground">
-              PPT<span className="text-primary">Gen</span>
+              Slide<span className="text-primary">Gen</span>
             </span>
           </Link>
 

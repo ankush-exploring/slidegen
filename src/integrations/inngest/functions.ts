@@ -1,14 +1,8 @@
-import { Output, generateText } from 'ai'
-import { google } from '@ai-sdk/google'
 import { z } from 'zod'
 
 import { prisma } from '#/db'
 
 import { inngest } from './client'
-
-// ---------------------------------------------------------------------------
-// Image Generation
-// ---------------------------------------------------------------------------
 
 function buildImageKitUrl(prompt: string, filename: string): string {
   const baseUrl = process.env.IMAGEKIT_BASE_URL!
@@ -21,24 +15,50 @@ function buildImageKitUrl(prompt: string, filename: string): string {
   return `${baseUrl}/ik-genimg-prompt-${encodeURIComponent(sanitizedPrompt)}/${filename}.jpg?tr=w-1280,h-720`
 }
 
-// ---------------------------------------------------------------------------
-// Schemas
-// ---------------------------------------------------------------------------
-
 const slideSchema = z.object({
-  title: z.string().describe('Slide title'),
-  content: z.string().describe('Main content / bullet points for the slide'),
-  notes: z.string().optional().describe('Speaker notes'),
-  imagePrompt: z
-    .string()
-    .describe(
-      'A concise prompt to generate an illustration for this slide (professional, clean style, no text in image)',
-    ),
+  title: z.string(),
+  content: z.string(),
+  notes: z.string().optional(),
+  imagePrompt: z.string(),
 })
 
 const slidesResponseSchema = z.object({
   slides: z.array(slideSchema),
 })
+
+async function generateSlidesViaGemini(prompt: string, systemPrompt: string) {
+  const apiKey = process.env.GOOGLE_GENERATIVE_AI_API_KEY
+  if (!apiKey) throw new Error('GOOGLE_GENERATIVE_AI_API_KEY is not set')
+
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        systemInstruction: { parts: [{ text: systemPrompt }] },
+        generationConfig: {
+          temperature: 0.7,
+          responseMimeType: 'application/json',
+        },
+      }),
+    },
+  )
+
+  if (!res.ok) {
+    const body = await res.text()
+    throw new Error(`Gemini API error ${res.status}: ${body}`)
+  }
+
+  const data = await res.json()
+  const text = data?.candidates?.[0]?.content?.parts?.[0]?.text
+  if (!text) {
+    throw new Error('Gemini returned empty response: ' + JSON.stringify(data))
+  }
+
+  return JSON.parse(text) as unknown
+}
 
 export const generatePresentation = inngest.createFunction(
   {
@@ -79,20 +99,26 @@ Guidelines:
 - Last slide should be a summary or call-to-action
 - Keep content concise and impactful
 - For imagePrompt, describe a professional illustration that complements the slide (no text in images)
-`
 
-        const result = await generateText({
-          model: google('gemini-2.5-flash'),
-          output: Output.object({ schema: slidesResponseSchema }),
-          system: systemPrompt,
-          prompt: presentation.prompt,
-        })
+You MUST respond with a single valid JSON object matching this exact structure (no markdown, no code fences, no extra text):
+{
+  "slides": [
+    {
+      "title": "string",
+      "content": "string",
+      "notes": "string or empty",
+      "imagePrompt": "string"
+    }
+  ]
+}`
 
-        if (!result.output) {
-          throw new Error('AI model failed to generate slide content')
+        const parsed = await generateSlidesViaGemini(presentation.prompt, systemPrompt)
+        const validated = slidesResponseSchema.safeParse(parsed)
+        if (!validated.success) {
+          throw new Error('AI output schema error: ' + validated.error.message)
         }
 
-        return result.output
+        return validated.data
       })
 
       await step.run('delete-old-slides', async () => {
@@ -124,6 +150,7 @@ Guidelines:
 
       return { success: true, slideCount: slides.length }
     } catch (err) {
+      console.error('[inngest] generatePresentation failed:', err)
       await step.run('mark-failed', async () => {
         await prisma.presentation.update({
           where: { id: presentationId },

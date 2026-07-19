@@ -10,7 +10,7 @@ export const auth = betterAuth({
 
   trustedOrigins: [
     "http://localhost:3000",
-    "https://slidegen-8r41o0qkt-exploring2.vercel.app",
+    "https://slidegen-alpha.vercel.app",
   ],
 
   socialProviders: {
