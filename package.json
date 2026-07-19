@@ -80,5 +80,8 @@
       "esbuild",
       "lightningcss"
     ]
+  },
+  "overrides": {
+    "ulid": "^3"
   }
 }

@@ -48,6 +48,7 @@ import {
   RefreshCw,
   Save,
   Trash2,
+  XCircle,
 } from 'lucide-react'
 import { useCallback, useState } from 'react'
 import { toast } from 'sonner'
@@ -461,7 +462,7 @@ function PresentationDetailPage() {
               </div>
             )}
 
-            {slides.length === 0 && !isGenerating && (
+            {slides.length === 0 && !isGenerating && data.status !== 'FAILED' && (
               <div className="glass rounded-2xl p-12 text-center">
                 <p className="text-muted-foreground mb-4">
                   No slides yet. Click "Regenerate" to create slides from your
@@ -474,6 +475,23 @@ function PresentationDetailPage() {
                 >
                   <RefreshCw className="size-4" />
                   Generate slides
+                </Button>
+              </div>
+            )}
+
+            {data.status === 'FAILED' && (
+              <div className="glass rounded-2xl p-12 text-center">
+                <XCircle className="size-8 mx-auto mb-4 text-destructive" />
+                <p className="text-muted-foreground mb-2">
+                  Generation failed. This can happen due to a temporary AI service error.
+                </p>
+                <Button
+                  className="rounded-xl gap-2"
+                  onClick={() => regenerateMut.mutate()}
+                  disabled={regenerateMut.isPending}
+                >
+                  <RefreshCw className="size-4" />
+                  {regenerateMut.isPending ? 'Retrying…' : 'Try again'}
                 </Button>
               </div>
             )}

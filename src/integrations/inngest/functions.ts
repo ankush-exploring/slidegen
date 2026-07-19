@@ -49,23 +49,24 @@ export const generatePresentation = inngest.createFunction(
   async ({ event, step }) => {
     const { presentationId } = event.data as { presentationId: string }
 
-    const presentation = await step.run('fetch-presentation', async () => {
-      const p = await prisma.presentation.findUnique({
-        where: { id: presentationId },
+    try {
+      const presentation = await step.run('fetch-presentation', async () => {
+        const p = await prisma.presentation.findUnique({
+          where: { id: presentationId },
+        })
+        if (!p) throw new Error('Presentation not found')
+        return p
       })
-      if (!p) throw new Error('Presentation not found')
-      return p
-    })
 
-    await step.run('mark-generating', async () => {
-      await prisma.presentation.update({
-        where: { id: presentationId },
-        data: { status: 'GENERATING' },
+      await step.run('mark-generating', async () => {
+        await prisma.presentation.update({
+          where: { id: presentationId },
+          data: { status: 'GENERATING' },
+        })
       })
-    })
 
-    const { slides } = await step.run('generate-slides-content', async () => {
-      const systemPrompt = `You are an expert presentation designer. Given a user's content/prompt, create a compelling presentation.
+      const { slides } = await step.run('generate-slides-content', async () => {
+        const systemPrompt = `You are an expert presentation designer. Given a user's content/prompt, create a compelling presentation.
 
 Style: ${presentation.style}
 Tone: ${presentation.tone}
@@ -80,44 +81,57 @@ Guidelines:
 - For imagePrompt, describe a professional illustration that complements the slide (no text in images)
 `
 
-      const result = await generateText({
-        model: google('gemini-2.5-flash'),
-        output: Output.object({ schema: slidesResponseSchema }),
-        system: systemPrompt,
-        prompt: presentation.prompt,
+        const result = await generateText({
+          model: google('gemini-2.5-flash'),
+          output: Output.object({ schema: slidesResponseSchema }),
+          system: systemPrompt,
+          prompt: presentation.prompt,
+        })
+
+        if (!result.output) {
+          throw new Error('AI model failed to generate slide content')
+        }
+
+        return result.output
       })
 
-      return result.output
-    })
-
-    await step.run('delete-old-slides', async () => {
-      await prisma.slide.deleteMany({
-        where: { presentationId },
+      await step.run('delete-old-slides', async () => {
+        await prisma.slide.deleteMany({
+          where: { presentationId },
+        })
       })
-    })
 
-    await step.run('create-slides', async () => {
-      const data = slides.map((s, i) => ({
-        presentationId,
-        order: i,
-        title: s.title,
-        content: s.content,
-        notes: s.notes ?? null,
-        imagePrompt: s.imagePrompt,
-        imageUrl: buildImageKitUrl(s.imagePrompt, `slide-${presentationId}-${i}`),
-      }))
+      await step.run('create-slides', async () => {
+        const data = slides.map((s, i) => ({
+          presentationId,
+          order: i,
+          title: s.title,
+          content: s.content,
+          notes: s.notes ?? null,
+          imagePrompt: s.imagePrompt,
+          imageUrl: buildImageKitUrl(s.imagePrompt, `slide-${presentationId}-${i}`),
+        }))
 
-      await prisma.slide.createMany({ data })
-    })
-
-    await step.run('mark-completed', async () => {
-      await prisma.presentation.update({
-        where: { id: presentationId },
-        data: { status: 'COMPLETED' },
+        await prisma.slide.createMany({ data })
       })
-    })
 
-    return { success: true, slideCount: slides.length }
+      await step.run('mark-completed', async () => {
+        await prisma.presentation.update({
+          where: { id: presentationId },
+          data: { status: 'COMPLETED' },
+        })
+      })
+
+      return { success: true, slideCount: slides.length }
+    } catch (err) {
+      await step.run('mark-failed', async () => {
+        await prisma.presentation.update({
+          where: { id: presentationId },
+          data: { status: 'FAILED' },
+        })
+      })
+      throw err
+    }
   },
 )
 

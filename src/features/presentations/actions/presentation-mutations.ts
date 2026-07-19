@@ -27,10 +27,18 @@ export const createPresentation = createServerFn({ method: 'POST' })
       },
     })
 
-    await inngest.send({
-      name: 'presentation/generate',
-      data: { presentationId: presentation.id },
-    })
+    try {
+      await inngest.send({
+        name: 'presentation/generate',
+        data: { presentationId: presentation.id },
+      })
+    } catch {
+      await prisma.presentation.update({
+        where: { id: presentation.id },
+        data: { status: 'FAILED' },
+      })
+      throw new Error('Failed to start generation. Please try regenerating.')
+    }
 
     return presentation
   })
@@ -77,10 +85,16 @@ export const regeneratePresentation = createServerFn({ method: 'POST' })
       data: { status: 'GENERATING' },
     })
 
-    await inngest.send({
-      name: 'presentation/generate',
-      data: { presentationId: data.id },
-    })
-
-    
+    try {
+      await inngest.send({
+        name: 'presentation/generate',
+        data: { presentationId: data.id },
+      })
+    } catch {
+      await prisma.presentation.update({
+        where: { id: data.id },
+        data: { status: 'FAILED' },
+      })
+      throw new Error('Failed to start regeneration. Please try again.')
+    }
   })
